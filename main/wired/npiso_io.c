@@ -16,7 +16,6 @@
 #define NPISO_PORT_MAX 2
 #define NPISO_LATCH_PIN 32
 #define NPISO_LATCH_MASK (1U << 0) /* First of 2nd bank of GPIO */
-#define NPISO_TIMEOUT 4096
 
 #define P1_CLK_PIN 5
 #define P1_SEL_PIN 23
@@ -64,19 +63,6 @@ enum {
     DEV_SNES_XBAND_KB,
 };
 
-struct counters {
-    union {
-        uint32_t val;
-        struct {
-            uint8_t cnt[4];
-        };
-        struct {
-            uint16_t cnt_g0;
-            uint16_t cnt_g1;
-        };
-    };
-};
-
 static const uint8_t gpio_pins[NPISO_PORT_MAX][NPISO_PIN_MAX] = {
     {P1_CLK_PIN, P1_SEL_PIN, P1_D0_PIN, P1_D1_PIN},
     {P2_CLK_PIN, P2_SEL_PIN, P2_D0_PIN, P2_D1_PIN},
@@ -88,18 +74,14 @@ static const uint32_t gpio_mask[NPISO_PORT_MAX][NPISO_PIN_MAX] = {
 };
 
 static uint8_t dev_type[NPISO_PORT_MAX] = {0};
-static uint8_t mt_first_port[NPISO_PORT_MAX] = {0};
 static uint32_t cnt[NPISO_PORT_MAX] = {0};
 static uint32_t idx[NPISO_PORT_MAX];
 static uint8_t mask[NPISO_PORT_MAX] = {0x80, 0x80};
 static uint8_t fs_id[NPISO_PORT_MAX] = {0xEF, 0xDF};
-static struct counters cnts = {0};
-static uint8_t *cnt0 = &cnts.cnt[0];
-static uint8_t *cnt1 = &cnts.cnt[1];
-static uint32_t idx0, idx1;
 static uint8_t mouse_speed[NPISO_PORT_MAX] = {MOUSE_SPEED_MIN, MOUSE_SPEED_MIN};
 static uint8_t mouse_update[NPISO_PORT_MAX] = {0};
 static uint8_t mouse_axes[NPISO_PORT_MAX][2] = {0};
+static uint8_t mt_mode = 0;
 
 static inline void set_data(uint8_t port, uint8_t data_id, uint8_t value) {
     uint32_t mask = gpio_mask[port][NPISO_D0 + data_id];
@@ -337,175 +319,118 @@ static unsigned npiso_sfc_snes_5p_isr(unsigned cause) {
     const uint32_t low_io = GPIO.acpu_int;
     const uint32_t high_io = GPIO.acpu_int1.intr;
 
-    /* reset bit counter, set first bit */
+    /* Set first bit */
     if (high_io & NPISO_LATCH_MASK) {
-        if (GPIO.in1.val & NPISO_LATCH_MASK) {
-            if (GPIO.in & P2_SEL_MASK) {
-                //set_data(1, 0, 0);
-                set_data(1, 1, 0);
-            }
-        }
-        else {
-            if (GPIO.in & P2_SEL_MASK) {
-                set_data(1, 0, wired_adapter.data[1].output[0] & 0x80);
-                set_data(1, 1, wired_adapter.data[2].output[0] & 0x80);
-            }
-            else {
-                set_data(1, 0, wired_adapter.data[3].output[0] & 0x80);
-                set_data(1, 1, wired_adapter.data[4].output[0] & 0x80);
-            }
-            cnts.val = 0x01010101;
-            idx0 = 0;
-            idx1 = 0;
-            mask[0] = 0x40;
-            mask[1] = 0x40;
-        }
-        if (!(GPIO.in1.val & NPISO_LATCH_MASK)) {
-            /* Help for games with very short latch that don't trigger falling edge intr */
-            if (GPIO.in & P2_SEL_MASK) {
-                set_data(1, 0, wired_adapter.data[1].output[0] & 0x80);
-                set_data(1, 1, wired_adapter.data[2].output[0] & 0x80);
-            }
-            else {
-                set_data(1, 0, wired_adapter.data[3].output[0] & 0x80);
-                set_data(1, 1, wired_adapter.data[4].output[0] & 0x80);
-            }
-            cnts.val = 0x01010101;
-            idx0 = 0;
-            idx1 = 0;
-            mask[0] = 0x40;
-            mask[1] = 0x40;
-        }
-        set_data(0, 0, wired_adapter.data[0].output[0] & 0x80);
-    }
-
-    if (low_io & P2_SEL_MASK) {
-        if (GPIO.in & P2_SEL_MASK) {
-            //set_data(1, 0, wired_adapter.data[1].output[0] & 0x80);
-            //set_data(1, 1, wired_adapter.data[2].output[0] & 0x80);
-            cnt0 = &cnts.cnt[0];
-            cnt1 = &cnts.cnt[1];
-        }
-        else {
-            set_data(1, 0, wired_adapter.data[3].output[0] & 0x80);
-            set_data(1, 1, wired_adapter.data[4].output[0] & 0x80);
-            cnt0 = &cnts.cnt[2];
-            cnt1 = &cnts.cnt[3];
-        }
-        idx0 = *cnt0 >> 3;
-        idx1 = *cnt1 >> 3;
+        set_data(0, 0, (wired_adapter.data[0].output[0] | wired_adapter.data[0].output_mask[0]) & 0x80); /* 1p */
+        idx[0] = 0;
         mask[0] = 0x40;
-        mask[1] = 0x40;
+        set_data(1, 1, 0); /* Multitap presence */
+        switch (GPIO.in & P2_SEL_MASK) {
+            default:
+                set_data(1, 0, (wired_adapter.data[1].output[0] | wired_adapter.data[1].output_mask[0]) & 0x80); /* 2p */
+                idx[1] = 0;
+                mask[1] = 0x40;
+                while (GPIO.in1.val & NPISO_LATCH_MASK); /* Wait falling latch edge */
+                set_data(1, 1, (wired_adapter.data[2].output[0] | wired_adapter.data[2].output_mask[0]) & 0x80); /* 3p */
+                break;
+            case 0:
+                set_data(1, 0, (wired_adapter.data[3].output[0] | wired_adapter.data[3].output_mask[0]) & 0x80); /* 4p */
+                idx[1] = 0;
+                mask[1] = 0x40;
+                while (GPIO.in1.val & NPISO_LATCH_MASK); /* Wait falling latch edge */
+                set_data(1, 1, (wired_adapter.data[4].output[0] | wired_adapter.data[4].output_mask[0]) & 0x80); /* 5p */
+                break;
+        }   
     }
 
-    /* Update port 0 */
-    if (!(GPIO.in1.val & NPISO_LATCH_MASK)) {
+    while (!(GPIO.in1.val & NPISO_LATCH_MASK)) {
+        /* Update port 0 data lines on rising clock edge */
         if (low_io & P1_CLK_MASK) {
-            switch (idx0) {
+            if (!mask[0]) {
+                idx[0]++;
+                switch (idx[0]) {
+                    case 0:
+                    case 1:
+                        mask[0] = 0x80;
+                        break;
+                }
+            }
+            switch (idx[0]) {
                 case 0:
                     while (!(GPIO.in & P1_CLK_MASK)); /* Wait rising edge */
-                    set_data(0, 0, wired_adapter.data[0].output[0] & mask[0]);
+                    set_data(0, 0, (wired_adapter.data[0].output[0] | wired_adapter.data[0].output_mask[0]) & mask[0]);
+                    mask[0] >>= 1;
                     break;
                 case 1:
                     while (!(GPIO.in & P1_CLK_MASK)); /* Wait rising edge */
-                    set_data(0, 0, wired_adapter.data[0].output[1] & mask[0]);
+                    set_data(0, 0, (wired_adapter.data[0].output[1] | wired_adapter.data[0].output_mask[1]) & mask[0]);
+                    mask[0] >>= 1;
                     break;
                 default:
                     while (!(GPIO.in & P1_CLK_MASK)); /* Wait rising edge */
                     set_data(0, 0, 0);
                     break;
-            }
-            (*cnt0)++;
-            idx0 = *cnt0 >> 3;
-            mask[0] >>= 1;
-            if (!mask[0]) {
-                mask[0] = 0x80;
+                /* Controller detected on 17th cycle */
             }
         }
-    }
 
-    /* Update port 1 */
-    if (low_io & P2_CLK_MASK) {
-        if (GPIO.in1.val & NPISO_LATCH_MASK) {
-            /* P2-D0 load B when clocked while Latch is set. */
-            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-            set_data(1, 0, wired_adapter.data[1].output[0] & 0x80);
-        }
-        else {
-            if (GPIO.in & P2_SEL_MASK) {
-                switch (idx1) {
-                    case 0:
-                        while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                        set_data(1, 0, wired_adapter.data[1].output[0] & mask[1]);
-                        set_data(1, 1, wired_adapter.data[2].output[0] & mask[1]);
-                        break;
-                    case 1:
-                        while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                        set_data(1, 0, wired_adapter.data[1].output[1] & mask[1]);
-                        set_data(1, 1, wired_adapter.data[2].output[1] & mask[1]);
-                        break;
-                    default:
-                        if (*cnt1 == 17) {
-                            /* Hack to help for games reading too fast on SEL transition */
-                            /* Set B following previous SEL controllers detection */
-                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                            delay_us(2);
-                            set_data(1, 0, wired_adapter.data[3].output[0] & 0x80);
-                            set_data(1, 1, wired_adapter.data[4].output[0] & 0x80);
-                        }
-                        else {
-                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                            set_data(1, 0, 0);
-                            set_data(1, 1, 0);
-                        }
-                        break;
-                }
-            }
-            else {
-                switch (idx1) {
-                    case 0:
-                        while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                        set_data(1, 0, wired_adapter.data[3].output[0] & mask[1]);
-                        set_data(1, 1, wired_adapter.data[4].output[0] & mask[1]);
-                        break;
-                    case 1:
-                        while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                        set_data(1, 0, wired_adapter.data[3].output[1] & mask[1]);
-                        set_data(1, 1, wired_adapter.data[4].output[1] & mask[1]);
-                        break;
-                    default:
-                        //if (*cnt1 == 17) {
-                            /* Hack to help for games reading too fast on SEL transition */
-                            /* Set B following previous SEL controllers detection */
-                        //    set_data(1, 0, wired_adapter.data[1].output[0] & 0x80);
-                        //    set_data(1, 1, wired_adapter.data[2].output[0] & 0x80);
-                        //}
-                        //else {
-                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
-                            set_data(1, 0, 0);
-                            set_data(1, 1, 0);
-                        //}
-                        break;
-                }
-            }
-            (*cnt1)++;
-            idx1 = *cnt1 >> 3;
-            mask[1] >>= 1;
+        /* Update port 1 data lines on rising clock edge */
+        if (low_io & P2_CLK_MASK) {
             if (!mask[1]) {
-                mask[1] = 0x80;
+                idx[1]++;
+                switch (idx[1]) {
+                    case 0:
+                    case 1:
+                    case 3:
+                    case 4:
+                        mask[1] = 0x80;
+                        break;
+                }
             }
+            switch (idx[1]) {
+                case 0:
+                    switch (GPIO.in & P2_SEL_MASK) {
+                        default:
+                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
+                            set_data(1, 0, (wired_adapter.data[1].output[0] | wired_adapter.data[1].output_mask[0]) & mask[1]);
+                            set_data(1, 1, (wired_adapter.data[2].output[0] | wired_adapter.data[2].output_mask[0]) & mask[1]);
+                            break;
+                        case 0:
+                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
+                            set_data(1, 0, (wired_adapter.data[3].output[0] | wired_adapter.data[3].output_mask[0]) & mask[1]);
+                            set_data(1, 1, (wired_adapter.data[4].output[0] | wired_adapter.data[4].output_mask[0]) & mask[1]);
+                            break;
+                    }
+                    mask[1] >>= 1;
+                    break;
+                case 1:
+                    switch (GPIO.in & P2_SEL_MASK) {
+                        default:
+                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
+                            set_data(1, 0, (wired_adapter.data[1].output[1] | wired_adapter.data[1].output_mask[1]) & mask[1]);
+                            set_data(1, 1, (wired_adapter.data[2].output[1] | wired_adapter.data[2].output_mask[1]) & mask[1]);
+                            break;
+                        case 0:
+                            while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
+                            set_data(1, 0, (wired_adapter.data[3].output[1] | wired_adapter.data[3].output_mask[1]) & mask[1]);
+                            set_data(1, 1, (wired_adapter.data[4].output[1] | wired_adapter.data[4].output_mask[1]) & mask[1]);
+                            break;
+                    }
+                    mask[1] >>= 1;
+                    break;
+                default:
+                    while (!(GPIO.in & P2_CLK_MASK)); /* Wait rising edge */
+                    set_data(1, 0, 0);
+                    set_data(1, 1, 0);
+                    break;
+            }  
         }
-    }
 
-    /* EA games Latch sometimes glitch and we can't detect 2nd rising */
-    if (GPIO.in1.val & NPISO_LATCH_MASK) {
-        if (GPIO.in & P2_SEL_MASK) {
-            set_data(1, 1, 0);
-        }
-    }
+        if (high_io) GPIO.status1_w1tc.intr_st = high_io;
+        if (low_io) GPIO.status_w1tc = low_io;
 
-    if (high_io) GPIO.status1_w1tc.intr_st = high_io;
-    if (low_io) GPIO.status_w1tc = low_io;
+        return 0;
+    }
 
     return 0;
 }
@@ -521,14 +446,10 @@ void npiso_init(void)
             case MT_DUAL:
                 dev_type[0] = DEV_FC_NES_MULTITAP;
                 dev_type[1] = DEV_FC_NES_MULTITAP;
-                mt_first_port[1] = 2;
                 break;
             case MT_ALT:
                 dev_type[0] = DEV_FC_MULTITAP_ALT;
                 dev_type[1] = DEV_FC_MULTITAP_ALT;
-                break;
-            default:
-                mt_first_port[1] = 1;
                 break;
         }
 
@@ -550,23 +471,8 @@ void npiso_init(void)
         }
     }
     else {
-        switch (config.global_cfg.multitap_cfg) {
-            case MT_SLOT_1:
-                dev_type[0] = DEV_SFC_SNES_MULTITAP;
-                mt_first_port[1] = 4;
-                break;
-            case MT_SLOT_2:
-                dev_type[1] = DEV_SFC_SNES_MULTITAP;
-                mt_first_port[1] = 1;
-                break;
-            case MT_DUAL:
-                dev_type[0] = DEV_SFC_SNES_MULTITAP;
-                dev_type[1] = DEV_SFC_SNES_MULTITAP;
-                mt_first_port[1] = 4;
-                break;
-            default:
-                mt_first_port[1] = 1;
-                break;
+        if (config.global_cfg.multitap_cfg == MT_SLOT_2) {
+            dev_type[1] = DEV_SFC_SNES_MULTITAP;
         }
 
         for (uint32_t i = 0; i < NPISO_PORT_MAX; i++) {
@@ -588,12 +494,7 @@ void npiso_init(void)
     }
 
     /* Latch */
-    if (dev_type[1] == DEV_SFC_SNES_MULTITAP) {
-        io_conf.intr_type = GPIO_INTR_ANYEDGE;
-    }
-    else {
-        io_conf.intr_type = GPIO_INTR_POSEDGE;
-    }
+    io_conf.intr_type = GPIO_INTR_POSEDGE;
     io_conf.pin_bit_mask = 1ULL << NPISO_LATCH_PIN;
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -623,6 +524,16 @@ void npiso_init(void)
         }
     }
 
+    /* P2 Select */
+    if (dev_type[1] == DEV_SFC_SNES_MULTITAP) {
+        io_conf.intr_type = GPIO_INTR_ANYEDGE;
+        io_conf.pin_bit_mask = 1ULL << P2_SEL_PIN;
+        io_conf.mode = GPIO_MODE_INPUT;
+        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+        gpio_config_iram(&io_conf);
+    }
+
     /* Consolize VBOY VTAP buttons */
     if (wired_adapter.system_id == VBOY) {
         io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -637,20 +548,6 @@ void npiso_init(void)
         gpio_set_level_iram(VTAP_MODE_PIN, 1);
     }
 
-    if (dev_type[1] == DEV_SFC_SNES_MULTITAP) {
-        /* Selects */
-        for (uint32_t i = 0; i < NPISO_PORT_MAX; i++) {
-            io_conf.intr_type = GPIO_INTR_ANYEDGE;
-            io_conf.pin_bit_mask = 1ULL << gpio_pins[i][NPISO_SEL];
-            io_conf.mode = GPIO_MODE_INPUT;
-            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-            io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-            gpio_config_iram(&io_conf);
-        }
-
-        intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, 19, npiso_sfc_snes_5p_isr);
-    }
-    else {
-        intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, 19, npiso_isr);
-    }
+    if (dev_type[1] == DEV_SFC_SNES_MULTITAP) intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, 19, npiso_sfc_snes_5p_isr);
+    else intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, 19, npiso_isr);
 }
