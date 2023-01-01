@@ -381,7 +381,7 @@ static unsigned npiso_sfc_snes_5p_isr(unsigned cause) {
     }
 
     /* Update data lines on rising clock edge */
-    while (!(GPIO.in1.val & NPISO_LATCH_MASK)) { 
+    if (!(GPIO.in1.val & NPISO_LATCH_MASK)) { 
         /* Update port 0 (1p) */
         if ((low_io & P1_CLK_MASK) && (idx[0] < 2)) {
             if (!mask[0]) {
@@ -490,12 +490,10 @@ static unsigned npiso_sfc_snes_5p_isr(unsigned cause) {
                 }
                 break;
         }
-        
-        if (high_io) GPIO.status1_w1tc.intr_st = high_io;
-        if (low_io) GPIO.status_w1tc = low_io;
-
-        return 0;
     }
+
+    if (high_io) GPIO.status1_w1tc.intr_st = high_io;
+    if (low_io) GPIO.status_w1tc = low_io;
 
     return 0;
 }
