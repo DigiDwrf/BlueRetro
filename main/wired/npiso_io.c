@@ -70,6 +70,7 @@ enum {
     DEV_SFC_SNES_MULTITAP,
     DEV_SFC_SNES_MOUSE,
     DEV_SNES_XBAND_KB,
+    DEV_SFC_SNES_SUPERSCOPE,
 };
 
 static uint8_t gpio_pins[NPISO_PORT_MAX][NPISO_PIN_MAX] = {
@@ -101,6 +102,12 @@ static uint32_t kb_data = 0;
 static uint8_t pads_idx[2] = {0};
 static uint32_t pads_data = 0;
 static const uint32_t (*scancodes)[2] = (uint32_t (*)[2])wired_adapter.data[0].output;
+static uint8_t sscope_turbo = 0; /* Super Scope starts non-turbo by default */
+static uint8_t sscope_turbo_switch = 1;
+static uint8_t sscope_offscreen = 0;
+static uint8_t sscope_latch_ready = 0;
+static uint16_t sscope_latch_aim = 1270; // Half of screen
+static uint8_t sscope_latch_timer = 0;
 
 static inline void set_data(uint8_t port, uint8_t data_id, uint8_t value) {
     uint32_t mask = gpio_mask[port][NPISO_D0 + data_id];
@@ -195,6 +202,28 @@ static unsigned npiso_isr(unsigned cause) {
             }
             cnt[i] = 1;
             mask[i] = 0x40;
+        }
+        if (dev_type[1] == DEV_SFC_SNES_SUPERSCOPE) { // Super Scope can only be used on port 2 of sfc/snes
+            if (wired_adapter.data[1].output[0] & 0x20) {
+                if (sscope_turbo_switch) { // Pressing SELECT button (by default) toggles turbo mode
+                    sscope_turbo = !sscope_turbo;
+                    sscope_turbo_switch = 0;
+                }
+            } else {
+                sscope_turbo_switch = 1;
+            }
+            if (wired_adapter.data[1].output[1] & 0x80) {
+                sscope_offscreen = 1;  // Pressing A button (by default) sets offscreen
+            } else {
+                sscope_offscreen = 0;
+            }
+
+            if (wired_adapter.data[1].output[0] & 0x02) {
+                sscope_latch_aim--;
+            }
+            if (wired_adapter.data[1].output[0] & 0x01) {
+                sscope_latch_aim++;
+            }
         }
     }
 
@@ -317,6 +346,42 @@ static unsigned npiso_isr(unsigned cause) {
                                 set_data(i, 0, 0);
                                 break;
                         }
+                    }
+                    break;
+                case DEV_SFC_SNES_SUPERSCOPE:
+                    switch (idx[i]) {
+                        case 0:
+                            while (!(GPIO.in & clk_mask)); /* Wait rising edge */
+                            switch(mask[i]) {
+                                case 0x80: // Fire
+                                case 0x40: // Cursor
+                                case 0x10: // Pause
+                                    set_data(i, 0, (wired_adapter.data[i].output[idx[i]] | wired_adapter.data[i].output_mask[idx[i]]) & mask[i]);
+                                    break;
+                                case 0x20: // Turbo
+                                    set_data(i, 0, sscope_turbo);
+                                    break;
+                                case 0x02: // Offscreen
+                                    set_data(i, 0, sscope_offscreen);
+                                    break;
+                            }
+                            break;
+                        case 1:
+                            while (!(GPIO.in & clk_mask)); /* Wait rising edge */
+                            set_data(i, 0, 1);
+                            break;
+                        default:
+                            set_data(i, 0, 1);
+                            if (sscope_latch_ready && (!sscope_offscreen)) {
+                                sscope_latch_timer++;
+                                if(sscope_latch_timer > sscope_latch_aim) {
+                                    GPIO.out_w1tc = P2_SEL_MASK;
+                                    delay_us(5);
+                                    GPIO.out_w1ts = P2_SEL_MASK;
+                                    sscope_latch_ready = 0;
+                                }
+                            }
+                            break;
                     }
                     break;
             }
@@ -610,8 +675,10 @@ void npiso_init(uint32_t package)
             if (dev_type[i] == DEV_NONE) {
                 switch (config.out_cfg[i].dev_mode) {
                     case DEV_PAD:
-                    case DEV_PAD_ALT:
                         dev_type[i] = DEV_SFC_SNES_PAD;
+                        break;
+                    case DEV_PAD_ALT:
+                        dev_type[i] = DEV_SFC_SNES_SUPERSCOPE;
                         break;
                     case DEV_KB:
                         dev_type[i] = DEV_SNES_XBAND_KB;
@@ -673,13 +740,24 @@ void npiso_init(uint32_t package)
     }
 
     /* P2 Select */
-    if (dev_type[1] == DEV_SFC_SNES_MULTITAP) {
-        io_conf.intr_type = GPIO_INTR_ANYEDGE;
-        io_conf.pin_bit_mask = 1ULL << P2_SEL_PIN;
-        io_conf.mode = GPIO_MODE_INPUT;
-        io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-        gpio_config_iram(&io_conf);
+    switch (dev_type[1]) {
+        case DEV_SFC_SNES_MULTITAP:
+            io_conf.intr_type = GPIO_INTR_ANYEDGE;
+            io_conf.pin_bit_mask = 1ULL << P2_SEL_PIN;
+            io_conf.mode = GPIO_MODE_INPUT;
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+            gpio_config_iram(&io_conf);
+            break;
+        case DEV_SFC_SNES_SUPERSCOPE:
+            io_conf.intr_type = GPIO_INTR_DISABLE;
+            io_conf.pin_bit_mask = 1ULL << P2_SEL_PIN;
+            io_conf.mode = GPIO_MODE_OUTPUT;
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+            gpio_config_iram(&io_conf);
+            GPIO.out_w1ts = P2_SEL_MASK;
+            break;
     }
 
     /* Consolize VBOY VTAP buttons */
