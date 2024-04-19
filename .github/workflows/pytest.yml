@@ -1,0 +1,34 @@
+name: pytest
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/darthcloud/idf-blueretro:v5.3.0_2024-02-18
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    - name: Build with ESP-IDF
+      run: |
+        . $IDF_PATH/export.sh
+        echo "br_version=$(git describe --always --tags --dirty)" >> $GITHUB_ENV
+        echo "$(git describe --always --tags --dirty) dbg qemu" | cut -c -31 > version.txt
+        cat version.txt
+        cp configs/dbg/qemu sdkconfig
+        idf.py build
+    - name: Run pytest
+      run: |
+        . $IDF_PATH/export.sh
+        (cd build; esptool.py --chip esp32 merge_bin --fill-flash-size 4MB -o flash_image.bin @flash_args)
+        qemu-system-xtensa -machine esp32 -drive file=build/flash_image.bin,if=mtd,format=raw -serial tcp::5555,server,nowait -display none -daemonize
+        pytest

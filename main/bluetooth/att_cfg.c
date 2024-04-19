@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2019-2022, Jacques Gagnon
+ * Copyright (c) 2019-2023, Jacques Gagnon
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
 #include <dirent.h>
 #include <esp_ota_ops.h>
+#include <esp_system.h>
 #include "host.h"
 #include "hci.h"
 #include "att.h"
@@ -28,6 +29,7 @@
 #define CFG_CMD_GET_GAMEID 0x04
 #define CFG_CMD_GET_CFG_SRC 0x05
 #define CFG_CMD_GET_FILE 0x06
+#define CFG_CMD_GET_FW_NAME 0x07
 #define CFG_CMD_SET_DEFAULT_CFG 0x10
 #define CFG_CMD_SET_GAMEID_CFG 0x11
 #define CFG_CMD_OPEN_DIR 0x12
@@ -280,9 +282,19 @@ static void bt_att_cfg_cmd_abi_ver_rsp(uint16_t handle) {
 }
 
 static void bt_att_cfg_cmd_fw_ver_rsp(uint16_t handle) {
-    const esp_app_desc_t *app_desc = esp_ota_get_app_description();
+    const esp_app_desc_t *app_desc = esp_app_get_description();
 
     memcpy(bt_hci_pkt_tmp.att_data, app_desc->version, 23);
+    bt_hci_pkt_tmp.att_data[23] = 0;
+    printf("# %s %s\n", __FUNCTION__, bt_hci_pkt_tmp.att_data);
+
+    bt_att_cmd(handle, BT_ATT_OP_READ_RSP, 23);
+}
+
+static void bt_att_cfg_cmd_fw_name_rsp(uint16_t handle) {
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+
+    memcpy(bt_hci_pkt_tmp.att_data, app_desc->project_name, 23);
     bt_hci_pkt_tmp.att_data[23] = 0;
     printf("# %s %s\n", __FUNCTION__, bt_hci_pkt_tmp.att_data);
 
@@ -399,8 +411,12 @@ static void bt_att_cfg_cmd_rd_hdlr(uint16_t handle) {
         case CFG_CMD_GET_FILE:
             bt_att_cfg_cmd_file_rsp(handle);
             break;
+        case CFG_CMD_GET_FW_NAME:
+            bt_att_cfg_cmd_fw_name_rsp(handle);
+            break;
         default:
             printf("# Invalid read cfg cmd: %02X\n", cfg_cmd);
+            bt_att_cfg_cmd_abi_ver_rsp(handle);
             break;
     }
 }

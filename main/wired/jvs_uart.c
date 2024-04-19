@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2019-2022, Jacques Gagnon
+ * Copyright (c) 2019-2023, Jacques Gagnon
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdint.h>
 #include "jvs_uart.h"
 #include "sdkconfig.h"
-#if defined (CONFIG_BLUERETRO_SYSTEM_JVS) || defined(CONFIG_BLUERETRO_SYSTEM_UNIVERSAL)
+#if defined (CONFIG_BLUERETRO_SYSTEM_JVS)
 #include <string.h>
 #include <hal/clk_gate_ll.h>
 #include <soc/uart_periph.h>
@@ -281,10 +282,10 @@ static unsigned uart_rx(unsigned cause) {
     UART1.int_clr.val = intr_status;
     return 0;
 }
-#endif /* defined (CONFIG_BLUERETRO_SYSTEM_JVS) || defined(CONFIG_BLUERETRO_SYSTEM_UNIVERSAL) */
+#endif /* defined (CONFIG_BLUERETRO_SYSTEM_JVS */
 
-void jvs_init(void) {
-#if defined (CONFIG_BLUERETRO_SYSTEM_JVS) || defined(CONFIG_BLUERETRO_SYSTEM_UNIVERSAL)
+void jvs_init(uint32_t package) {
+#if defined (CONFIG_BLUERETRO_SYSTEM_JVS)
     gpio_config_t jvs_sense_conf = {
         .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_OUTPUT,
@@ -348,5 +349,5 @@ void jvs_init(void) {
     uart_ll_txfifo_rst(&UART1);
 
     intexc_alloc_iram(ETS_UART1_INTR_SOURCE, 19, uart_rx);
-#endif /* defined (CONFIG_BLUERETRO_SYSTEM_JVS) || defined(CONFIG_BLUERETRO_SYSTEM_UNIVERSAL) */
+#endif /* defined (CONFIG_BLUERETRO_SYSTEM_JVS */
 }

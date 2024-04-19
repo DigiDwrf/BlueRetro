@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022, Jacques Gagnon
+ * Copyright (c) 2019-2023, Jacques Gagnon
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,6 +15,16 @@
 
 #define VTAP_PAL_PIN 16
 #define VTAP_MODE_PIN 27
+
+#define P2_D1_PIN 25
+#define P2_D2_PIN 3
+#define P2_D3_PIN 16
+#define P2_D4_PIN 27
+
+#define P2_D1_MASK (1U << P2_D1_PIN)
+#define P2_D2_MASK (1U << P2_D2_PIN)
+#define P2_D3_MASK (1U << P2_D3_PIN)
+#define P2_D4_MASK (1U << P2_D4_PIN)
 
 enum {
     NPISO_LD_RIGHT = 0,
@@ -41,22 +51,22 @@ static DRAM_ATTR const uint8_t npiso_mouse_axes_idx[ADAPTER_MAX_AXES] =
 
 static DRAM_ATTR const struct ctrl_meta npiso_mouse_axes_meta[ADAPTER_MAX_AXES] =
 {
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80},
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80, .polarity = 1},
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80},
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80, .polarity = 1},
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80},
-    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x80},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80, .polarity = 1},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80, .polarity = 1},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80},
+    {.size_min = -128, .size_max = 127, .neutral = 0x00, .abs_max = 0x7F, .abs_min = 0x80},
 };
 
 static DRAM_ATTR const struct ctrl_meta npiso_trackball_axes_meta[ADAPTER_MAX_AXES] =
 {
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8},
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8, .polarity = 1},
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8},
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8, .polarity = 1},
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8},
-    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x8},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8, .polarity = 1},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8, .polarity = 1},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8},
+    {.size_min = -8, .size_max = 7, .neutral = 0x00, .abs_max = 0x7, .abs_min = 0x8},
 };
 
 struct npiso_map {
@@ -77,7 +87,17 @@ struct npiso_trackball_map {
     int32_t raw_axes[2];
 } __packed;
 
-static const uint32_t npiso_mask[4] = {0x333F0F00, 0x00000000, 0x00000000, 0x00000000};
+struct npiso_kb_map {
+    uint32_t scancodes[9][2];
+} __packed;
+
+struct npiso_kb_key_to_matrix {
+    uint8_t column_idx;
+    uint8_t row_nibble_idx;
+    uint32_t row_mask;
+};
+
+static const uint32_t npiso_mask[4] = {0x333F0F00, 0x00000000, 0x00000000, BR_COMBO_MASK};
 static const uint32_t npiso_desc[4] = {0x00000000, 0x00000000, 0x00000000, 0x00000000};
 static DRAM_ATTR const uint32_t npiso_btns_mask[32] = {
     0, 0, 0, 0,
@@ -90,7 +110,7 @@ static DRAM_ATTR const uint32_t npiso_btns_mask[32] = {
     BIT(NPISO_R), BIT(NPISO_R), 0, 0,
 };
 
-static const uint32_t npiso_vb_mask[4] = {0xBBF50FF0, 0x00000000, 0x00000000, 0x00000000};
+static const uint32_t npiso_vb_mask[4] = {0xBBF50FF0, 0x00000000, 0x00000000, BR_COMBO_MASK};
 static const uint32_t npiso_vb_desc[4] = {0x00000000, 0x00000000, 0x00000000, 0x00000000};
 static DRAM_ATTR const uint32_t npiso_vb_btns_mask[32] = {
     0, 0, 0, 0,
@@ -103,7 +123,7 @@ static DRAM_ATTR const uint32_t npiso_vb_btns_mask[32] = {
     BIT(NPISO_R), BIT(NPISO_R), 0, 0,
 };
 
-static const uint32_t npiso_mouse_mask[4] = {0x110000F0, 0x00000000, 0x00000000, 0x00000000};
+static const uint32_t npiso_mouse_mask[4] = {0x110000F0, 0x00000000, 0x00000000, BR_COMBO_MASK};
 static const uint32_t npiso_mouse_desc[4] = {0x000000F0, 0x00000000, 0x00000000, 0x00000000};
 static const uint32_t npiso_mouse_btns_mask[32] = {
     0, 0, 0, 0,
@@ -116,7 +136,7 @@ static const uint32_t npiso_mouse_btns_mask[32] = {
     BIT(NPISO_Y), 0, 0, 0,
 };
 
-static const uint32_t npiso_trackball_mask[4] = {0x1907C0F0, 0x00000000, 0x00000000, 0x00000000};
+static const uint32_t npiso_trackball_mask[4] = {0x1907C0F0, 0x00000000, 0x00000000, BR_COMBO_MASK};
 static const uint32_t npiso_trackball_desc[4] = {0x000000F0, 0x00000000, 0x00000000, 0x00000000};
 static const uint32_t npiso_trackball_btns_mask[32] = {
     0, 0, 0, 0,
@@ -129,8 +149,51 @@ static const uint32_t npiso_trackball_btns_mask[32] = {
     BIT(NPISO_B), 0, 0, 0,
 };
 
+static const uint32_t npiso_kb_mask[4] = {0xE6FF0F0F, 0xFFFFFFFF, 0xFFFFFFFF, 0x0007FFFF | BR_COMBO_MASK};
+static const uint32_t npiso_kb_desc[4] = {0x00000000, 0x00000000, 0x00000000, 0x00000000};
+static const struct npiso_kb_key_to_matrix npiso_kb_key_to_matrix[KBM_MAX] = {
+ /* KB_A, KB_D, KB_S, KB_W, MOUSE_X_LEFT, MOUSE_X_RIGHT, MOUSE_Y_DOWN MOUSE_Y_UP */
+    {6, 0, P2_D4_MASK}, {5, 0, P2_D4_MASK}, {6, 0, P2_D3_MASK}, {6, 0, P2_D2_MASK}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+ /* KB_LEFT, KB_RIGHT, KB_DOWN, KB_UP, MOUSE_WX_LEFT, MOUSE_WX_RIGHT, MOUSE_WY_DOWN, MOUSE_WY_UP */
+    {8, 0, P2_D4_MASK}, {8, 0, P2_D3_MASK}, {8, 1, P2_D1_MASK}, {8, 0, P2_D2_MASK}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+ /* KB_Q, KB_R, KB_E, KB_F, KB_ESC, KB_ENTER, KB_LWIN, KB_HASH */
+    {7, 0, P2_D3_MASK}, {5, 0, P2_D3_MASK}, {6, 1, P2_D3_MASK}, {5, 1, P2_D1_MASK}, {7, 0, P2_D2_MASK}, {0, 0, P2_D2_MASK}, {0, 0, 0}, {0, 1, P2_D3_MASK},
+ /* MOUSE_RIGHT, KB_Z, KB_LCTRL, MOUSE_MIDDLE, MOUSE_LEFT, KB_X, KB_LSHIFT, KB_SPACE */
+    {0, 0, 0}, {6, 1, P2_D2_MASK}, {7, 0, P2_D4_MASK}, {0, 0, 0}, {0, 0, 0}, {6, 1, P2_D1_MASK}, {7, 1, P2_D1_MASK}, {8, 1, P2_D2_MASK},
+
+ /* KB_B, KB_C, KB_G, KB_H, KB_I, KB_J, KB_K, KB_L */
+    {4, 1, P2_D1_MASK}, {5, 1, P2_D2_MASK}, {4, 0, P2_D3_MASK}, {4, 0, P2_D4_MASK}, {3, 0, P2_D2_MASK}, {3, 0, P2_D4_MASK}, {2, 0, P2_D4_MASK}, {2, 0, P2_D3_MASK},
+ /* KB_M, KB_N, KB_O, KB_P, KB_T, KB_U, KB_V, KB_Y */
+    {3, 1, P2_D1_MASK}, {3, 1, P2_D2_MASK}, {2, 0, P2_D2_MASK}, {2, 1, P2_D3_MASK}, {5, 0, P2_D2_MASK}, {3, 0, P2_D3_MASK}, {4, 1, P2_D2_MASK}, {4, 0, P2_D2_MASK},
+ /* KB_1, KB_2, KB_3, KB_4, KB_5, KB_6, KB_7, KB_8 */
+    {7, 1, P2_D3_MASK}, {7, 1, P2_D4_MASK}, {6, 1, P2_D4_MASK}, {5, 1, P2_D4_MASK}, {5, 1, P2_D3_MASK}, {4, 1, P2_D4_MASK}, {4, 1, P2_D3_MASK}, {3, 1, P2_D4_MASK},
+ /* KB_9, KB_0, KB_BACKSPACE, KB_TAB, KB_MINUS, KB_EQUAL, KB_LEFTBRACE, KB_RIGHTBRACE */
+    {3, 1, P2_D3_MASK}, {2, 1, P2_D4_MASK}, {0, 1, P2_D4_MASK}, {0, 0, 0}, {1, 1, P2_D4_MASK}, {1, 1, P2_D3_MASK}, {0, 0, P2_D3_MASK}, {0, 0, P2_D4_MASK},
+
+ /* KB_BACKSLASH, KB_SEMICOLON, KB_APOSTROPHE, KB_GRAVE, KB_COMMA, KB_DOT, KB_SLASH, KB_CAPSLOCK */
+    {1, 1, P2_D1_MASK}, {1, 0, P2_D3_MASK}, {1, 0, P2_D4_MASK}, {0, 1, P2_D3_MASK}, {2, 1, P2_D2_MASK}, {2, 1, P2_D1_MASK}, {1, 1, P2_D2_MASK}, {0, 1, P2_D1_MASK},
+ /* KB_F1, KB_F2, KB_F3, KB_F4, KB_F5, KB_F6, KB_F7, KB_F8 */
+    {7, 0, P2_D1_MASK}, {6, 0, P2_D1_MASK}, {5, 0, P2_D1_MASK}, {4, 0, P2_D1_MASK}, {3, 0, P2_D1_MASK}, {2, 0, P2_D1_MASK}, {1, 0, P2_D1_MASK}, {0, 0, P2_D1_MASK},
+ /* KB_F9, KB_F10, KB_F11, KB_F12, KB_PSCREEN, KB_SCROLL, KB_PAUSE, KB_INSERT */
+    {0, 0, P2_D1_MASK | P2_D2_MASK | P2_D3_MASK | P2_D4_MASK}, {0, 1, P2_D1_MASK | P2_D2_MASK | P2_D3_MASK | P2_D4_MASK}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {8, 1, P2_D4_MASK},
+ /* KB_HOME, KB_PAGEUP, KB_DEL, KB_END, KB_PAGEDOWN, KB_NUMLOCK, KB_KP_DIV, KB_KP_MULTI */
+    {8, 0, P2_D1_MASK}, {0, 0, 0}, {8, 1, P2_D3_MASK}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+
+ /* KB_KP_MINUS, KB_KP_PLUS, KB_KP_ENTER, KB_KP_1, KB_KP_2, KB_KP_3, KB_KP_4, KB_KP_5 */
+    {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+ /* KB_KP_6, KB_KP_7, KB_KP_8, KB_KP_9, KB_KP_0, KB_KP_DOT, KB_LALT, KB_RCTRL */
+    {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {7, 1, P2_D2_MASK}, {0, 0, 0}, {0, 0, 0},
+ /* KB_RSHIFT, KB_RALT, KB_RWIN */
+    {0, 1, P2_D2_MASK}, {1, 0, P2_D2_MASK}, {0, 0, 0},
+};
+
 void IRAM_ATTR npiso_init_buffer(int32_t dev_mode, struct wired_data *wired_data) {
     switch (dev_mode) {
+        case DEV_KB:
+        {
+            memset(wired_data->output, 0x00, sizeof(struct npiso_kb_map));
+            break;
+        }
         case DEV_MOUSE:
         {
             if (wired_adapter.system_id == SNES) {
@@ -172,12 +235,16 @@ void IRAM_ATTR npiso_init_buffer(int32_t dev_mode, struct wired_data *wired_data
     }
 }
 
-void npiso_meta_init(struct generic_ctrl *ctrl_data) {
+void npiso_meta_init(struct wired_ctrl *ctrl_data) {
     memset((void *)ctrl_data, 0, sizeof(*ctrl_data)*WIRED_MAX_DEV);
 
     for (uint32_t i = 0; i < WIRED_MAX_DEV; i++) {
         for (uint32_t j = 0; j < ADAPTER_MAX_AXES; j++) {
             switch (config.out_cfg[i].dev_mode) {
+                case DEV_KB:
+                    ctrl_data[i].mask = npiso_kb_mask;
+                    ctrl_data[i].desc = npiso_kb_desc;
+                    break;
                 case DEV_MOUSE:
                     if (wired_adapter.system_id == SNES) {
                         ctrl_data[i].mask = npiso_mouse_mask;
@@ -205,7 +272,7 @@ void npiso_meta_init(struct generic_ctrl *ctrl_data) {
     }
 }
 
-static void npiso_vtap_gpio(struct generic_ctrl *ctrl_data, struct wired_data *wired_data) {
+static void npiso_vtap_gpio(struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
     /* Palette */
     if (ctrl_data->map_mask[0] & generic_btns_mask[PAD_LJ]) {
         if (ctrl_data->btns[0].value & generic_btns_mask[PAD_LJ]) {
@@ -238,7 +305,7 @@ static void npiso_vtap_gpio(struct generic_ctrl *ctrl_data, struct wired_data *w
     }
 }
 
-static void npiso_ctrl_from_generic(struct generic_ctrl *ctrl_data, struct wired_data *wired_data) {
+static void npiso_ctrl_from_generic(struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
     struct npiso_map map_tmp;
     uint32_t map_mask = 0xFFFF;
     const uint32_t *btns_mask = (wired_adapter.system_id == VBOY) ? npiso_vb_btns_mask : npiso_btns_mask;
@@ -260,9 +327,13 @@ static void npiso_ctrl_from_generic(struct generic_ctrl *ctrl_data, struct wired
     }
 
     memcpy(wired_data->output, (void *)&map_tmp, sizeof(map_tmp));
+
+#ifdef CONFIG_BLUERETRO_RAW_OUTPUT
+    printf("{\"log_type\": \"wired_output\", \"btns\": %d}\n", map_tmp.buttons);
+#endif
 }
 
-static void npiso_mouse_from_generic(struct generic_ctrl *ctrl_data, struct wired_data *wired_data) {
+static void npiso_mouse_from_generic(struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
     struct npiso_mouse_map map_tmp;
     int32_t *raw_axes = (int32_t *)(wired_data->output + 4);
 
@@ -295,7 +366,7 @@ static void npiso_mouse_from_generic(struct generic_ctrl *ctrl_data, struct wire
     memcpy(wired_data->output, (void *)&map_tmp, sizeof(map_tmp) - 8);
 }
 
-static void npiso_trackball_from_generic(struct generic_ctrl *ctrl_data, struct wired_data *wired_data) {
+static void npiso_trackball_from_generic(struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
     struct npiso_trackball_map map_tmp;
     int32_t *raw_axes = (int32_t *)(wired_data->output + 4);
 
@@ -328,8 +399,28 @@ static void npiso_trackball_from_generic(struct generic_ctrl *ctrl_data, struct 
     memcpy(wired_data->output, (void *)&map_tmp, sizeof(map_tmp) - 8);
 }
 
-void npiso_from_generic(int32_t dev_mode, struct generic_ctrl *ctrl_data, struct wired_data *wired_data) {
+static void npiso_kb_from_generic(struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
+    struct npiso_kb_map map_tmp = {0};
+
+    for (uint32_t i = 0; i < KBM_MAX; i++) {
+        if (ctrl_data->map_mask[i / 32] & BIT(i & 0x1F)) {
+            if (ctrl_data->btns[i / 32].value & BIT(i & 0x1F)) {
+                uint8_t column = npiso_kb_key_to_matrix[i].column_idx;
+                uint8_t row = npiso_kb_key_to_matrix[i].row_nibble_idx;
+
+                map_tmp.scancodes[column][row] |= npiso_kb_key_to_matrix[i].row_mask;
+            }
+        }
+    }
+
+    memcpy(wired_data->output, (void *)&map_tmp, sizeof(map_tmp));
+}
+
+void npiso_from_generic(int32_t dev_mode, struct wired_ctrl *ctrl_data, struct wired_data *wired_data) {
     switch (dev_mode) {
+        case DEV_KB:
+            npiso_kb_from_generic(ctrl_data, wired_data);
+            break;
         case DEV_MOUSE:
             if (wired_adapter.system_id == SNES) {
                 npiso_mouse_from_generic(ctrl_data, wired_data);

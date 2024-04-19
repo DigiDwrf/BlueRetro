@@ -26,6 +26,7 @@
 
 #include <stdio.h>
 #include <esp_cpu.h>
+#include <soc/uart_reg.h>
 #include <soc/dport_reg.h>
 #include <soc/soc_memory_layout.h>
 #include <esp_heap_caps.h>
@@ -34,7 +35,7 @@
 #include <esp32/rom/cache.h>
 #include <xt_instr_macros.h>
 #include <xtensa/config/specreg.h>
-#include <xtensa/xtensa_api.h>
+#include <xtensa_api.h>
 #include <xtensa/config/core.h>
 
 typedef void (*wired_init_t)(void);

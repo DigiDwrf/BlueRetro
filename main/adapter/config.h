@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022, Jacques Gagnon
+ * Copyright (c) 2019-2024, Jacques Gagnon
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,8 +11,9 @@
 #define CONFIG_MAGIC_V0 0xA5A5A5A5
 #define CONFIG_MAGIC_V1 0xF380D824
 #define CONFIG_MAGIC_V2 0x1782DB8A
-#define CONFIG_MAGIC CONFIG_MAGIC_V2
-#define CONFIG_VERSION 2
+#define CONFIG_MAGIC_V3 0xAB89C69A
+#define CONFIG_MAGIC CONFIG_MAGIC_V3
+#define CONFIG_VERSION 3
 #define ADAPTER_MAPPING_MAX 128
 
 enum {
@@ -57,8 +58,48 @@ struct config {
     struct in_cfg in_cfg[WIRED_MAX_DEV];
 } __packed;
 
-extern struct config config;
+struct hw_config {
+    union {
+        struct {
+            uint32_t external_adapter;
+            uint32_t hotplug;
+            uint32_t hw1_ports_led_pins[4];
+            uint32_t led_flash_duty_cycle;
+            uint32_t led_flash_hz[3];
+            uint32_t led_flash_off_duty_cycle;
+            uint32_t led_flash_on_duty_cycle;
+            uint32_t led_pulse_duty_max;
+            uint32_t led_pulse_duty_min;
+            uint32_t led_pulse_fade_cycle_delay_ms;
+            uint32_t led_pulse_fade_time_ms;
+            uint32_t led_pulse_hz;
+            uint32_t led_pulse_off_duty_cycle;
+            uint32_t led_pulse_on_duty_cycle;
+            uint32_t port_cnt;
+            uint32_t ports_sense_input_polarity;
+            uint32_t ports_sense_output_ms;
+            uint32_t ports_sense_output_od;
+            uint32_t ports_sense_output_polarity;
+            uint32_t ports_sense_p3_p4_as_output;
+            uint32_t power_pin_is_hold;
+            uint32_t power_pin_od;
+            uint32_t power_pin_polarity;
+            uint32_t power_pin_pulse_ms;
+            uint32_t reset_pin_od;
+            uint32_t reset_pin_polarity;
+            uint32_t reset_pin_pulse_ms;
+            uint32_t sw_io0_hold_thres_ms[3];
+            uint32_t ps_ctrl_colors[8];
+        };
+        uint32_t data32[43];
+    };
+    uint8_t bdaddr[6];
+} __packed;
 
+extern struct config config;
+extern struct hw_config hw_config;
+
+void hw_config_patch(void);
 void config_init(uint32_t src);
 void config_update(uint32_t dst);
 uint32_t config_get_src(void);
